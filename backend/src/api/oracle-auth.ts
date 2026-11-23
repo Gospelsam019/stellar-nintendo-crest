@@ -14,6 +14,13 @@ import { createHash, createHmac, timingSafeEqual } from "crypto";
 
 export class OracleKeyError extends Error {}
 
+/** Default tolerance (seconds) for the signed timestamp before a request is rejected. */
+export const ORACLE_SIGNATURE_TOLERANCE_SECONDS = 300;
+
+export type OracleSignatureResult =
+  | { ok: true }
+  | { ok: false; reason: "missing-signature" | "malformed-signature" | "missing-timestamp" | "stale-timestamp" | "invalid-signature" };
+
 /** Reads `ORACLE_API_KEY`. Throws outside the test environment when it is absent or empty. */
 export function requireOracleApiKey(env: NodeJS.ProcessEnv = process.env): string | undefined {
   const key = env.ORACLE_API_KEY;

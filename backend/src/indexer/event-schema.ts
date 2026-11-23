@@ -9,6 +9,8 @@
  * installed yet. The shape is the same as a zod schema would describe.
  */
 
+import { Address, scValToNative, xdr } from "@stellar/stellar-sdk";
+
 export interface RawContractEvent {
   topic: string;
   contractId: string;
@@ -47,6 +49,65 @@ export function parseContractEvent(raw: unknown): ParseResult {
     return { ok: false, reasons };
   }
   return { ok: true, event: e as unknown as RawContractEvent };
+}
+
+/**
+ * A dead-letter record for an event that could not be parsed or validated (#218).
+ *
+ * The raw payload is serialized so an operator can inspect and retry it later via the admin
+ * CLI. `ledger` is best-effort: it is extracted from the raw event when present so the DLQ row
+ * can be correlated with the ingestion position even when the rest of the shape is invalid.
+ */
+export interface DeadLetterRecord {
+  /** JSON-serialized raw event payload. */
+  payload: string;
+  /** Human-readable error message (joined validation reasons or thrown error). */
+  errorMessage: string;
+  /** Stack trace when the failure came from a thrown exception; null for validation failures. */
+  errorStack: string | null;
+  /** Ledger sequence the event belongs to, when it could be recovered from the payload. */
+  ledger: number | null;
+}
+
+/**
+ * Serializes a raw event payload to JSON without throwing on circular or non-serializable data.
+ */
+const serializePayload = (raw: unknown): string => {
+  try {
+    const json = JSON.stringify(raw);
+    return json === undefined ? String(raw) : json;
+  } catch (err) {
+    return `[unserializable payload: ${String(err)}]`;
+  }
+};
+
+/**
+ * Best-effort extraction of the ledger sequence from a raw event, used to correlate DLQ rows.
+ */
+const extractLedger = (raw: unknown): number | null => {
+  if (typeof raw !== "object" || raw === null) return null;
+  const ledger = (raw as Record<string, unknown>).ledger;
+  return isNonNegativeInt(ledger) ? ledger : null;
+};
+
+/**
+ * Builds a DLQ record from a failed event. Accepts either validation reasons or a thrown error
+ * so both failure modes are captured with the same shape.
+ */
+export function buildDeadLetterRecord(
+  raw: unknown,
+  reasons: string[],
+  err?: unknown,
+): DeadLetterRecord {
+  const errorMessage = err !== undefined ? String(err) : reasons.join("; ");
+  const errorStack =
+    err instanceof Error && typeof err.stack === "string" ? err.stack : null;
+  return {
+    payload: serializePayload(raw),
+    errorMessage: errorMessage.length > 0 ? errorMessage : "unknown parse failure",
+    errorStack,
+    ledger: extractLedger(raw),
+  };
 }
 
 /**

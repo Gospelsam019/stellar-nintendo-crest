@@ -4,6 +4,9 @@
  * Called only after the database transaction for an event has committed, so subscribers never
  * see an event that was rolled back. A Redis failure is logged and swallowed, so it cannot block
  * or roll back the indexing transaction.
+ *
+ * The same committed events are also bridged to WebSocket clients (#211) via a per-market topic
+ * so frontend feeds can subscribe to only the markets they care about.
  */
 
 export interface PubSubClient {
@@ -21,6 +24,11 @@ export interface LedgerEventNotice {
   state: Record<string, unknown>;
 }
 
+/** Event types bridged to WebSocket clients (#211). */
+export const BROADCAST_EVENT_TYPES = ["bet.placed", "market.resolved", "dispute.created"] as const;
+
+export type BroadcastEventType = (typeof BROADCAST_EVENT_TYPES)[number];
+
 /** Channel name for one topic, `stellar:events:<topic>`. */
 export function channelFor(topic: string): string {
   return `stellar:events:${topic}`;
@@ -29,6 +37,14 @@ export function channelFor(topic: string): string {
 /** Redis hash key holding the cached stats for one market, `stellar:market:stats:<marketId>`. */
 export function marketStatsKey(marketId: number): string {
   return `stellar:market:stats:${marketId}`;
+}
+
+/**
+ * Channel name for the WebSocket bridge of one market, `stellar:ws:market:<marketId>`.
+ * Clients subscribe to this topic to receive only events for that market.
+ */
+export function wsMarketChannelFor(marketId: number): string {
+  return `stellar:ws:market:${marketId}`;
 }
 
 /**
