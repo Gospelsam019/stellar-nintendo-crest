@@ -27,10 +27,10 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Log in to container registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -41,7 +41,7 @@ jobs:
         run: echo "tag=${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push staging image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ./Dockerfile
@@ -117,4 +117,34 @@ jobs:
           else
             echo "No scripts/smoke-test.sh found; running default health smoke check."
             curl -fsS "$STAGING_URL/health"
+          fi
+
+  purge-cdn-cache:
+    name: Purge Cloudflare edge cache
+    needs: smoke-test
+    runs-on: ubuntu-latest
+    # Only purge on successful deployments; skip if secret is not configured.
+    if: ${{ success() && secrets.CACHE_PURGE_SECRET != '' }}
+    steps:
+      - name: Trigger cache purge webhook
+        # Issue #283: automated cache purge triggered on major version deployments.
+        # Purges the CDN edge cache for static assets and market metadata API
+        # endpoints so users receive fresh content immediately after a release.
+        env:
+          STAGING_URL: ${{ vars.STAGING_URL }}
+          CACHE_PURGE_SECRET: ${{ secrets.CACHE_PURGE_SECRET }}
+        run: |
+          set -euo pipefail
+          echo "Triggering Cloudflare cache purge for deployment ${GITHUB_SHA::12}…"
+          HTTP_STATUS=$(curl -s -o /tmp/purge-response.json -w "%{http_code}" \
+            -X POST "${STAGING_URL}/api/cache-purge" \
+            -H "Authorization: Bearer ${CACHE_PURGE_SECRET}" \
+            -H "Content-Type: application/json" \
+            -d '{"urls":[]}')
+          echo "HTTP status: ${HTTP_STATUS}"
+          cat /tmp/purge-response.json
+          if [ "$HTTP_STATUS" != "200" ]; then
+            echo "::warning::Cache purge returned HTTP ${HTTP_STATUS}. CDN cache may be stale."
+          else
+            echo "Cache purge successful."
           fi

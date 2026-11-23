@@ -8,6 +8,12 @@ version: "3.8"
 # scrapes the exporter and evaluates the alerting rules in
 # `monitoring/blackbox/alert.rules.yml`, firing when the frontend response
 # time exceeds 2.5 seconds.
+#
+# Issue #284: Loki + Promtail services added for centralized log aggregation.
+# Promtail scrapes container stdout via the Docker socket and ships structured
+# JSON logs to Loki. All container logs (api, indexer, oracle) are queryable in
+# Grafana via LogQL with labels: service, level, market_id, trace_id.
+# Retention is configured at 14 days with automated pruning via the compactor.
 
 services:
   blackbox-exporter:
@@ -60,19 +66,70 @@ services:
       GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_admin_password
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./dashboards:/var/lib/grafana/dashboards:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafana-data:/var/lib/grafana
     ports:
       - "3000:3000"
     depends_on:
       - prometheus
+      - loki
     networks:
       - monitoring
+
+  # ── Issue #284: Loki log aggregation backend ──────────────────────────────
+  loki:
+    image: grafana/loki:3.1.0
+    container_name: loki
+    restart: unless-stopped
+    command:
+      - "-config.file=/etc/loki/loki-config.yml"
+    volumes:
+      - ./loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - loki-data:/loki
+    ports:
+      - "3100:3100"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:3100/ready || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - monitoring
+
+  # ── Issue #284: Promtail log collector / shipper ──────────────────────────
+  # Promtail attaches to the Docker socket to scrape container stdout logs and
+  # parses JSON fields into structured labels (service, level, market_id,
+  # trace_id) before shipping to Loki.
+  promtail:
+    image: grafana/promtail:3.1.0
+    container_name: promtail
+    restart: unless-stopped
+    command:
+      - "-config.file=/etc/promtail/promtail-config.yml"
+    volumes:
+      - ./promtail/promtail-config.yml:/etc/promtail/promtail-config.yml:ro
+      # Docker socket for container log discovery
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Host log directory (fallback for file-based log tailing)
+      - /var/log:/var/log:ro
+    depends_on:
+      loki:
+        condition: service_healthy
+    networks:
+      - monitoring
+      # Also attach to the application network so Promtail can reach containers
+      - app
 
 volumes:
   prometheus-data:
   grafana-data:
+  # Persistent Loki chunk and index storage (issue #284)
+  loki-data:
 
 networks:
   monitoring:
     driver: bridge
+  # External reference to the application compose network
+  app:
+    external: true
+    name: stellar-nintendo-crest_default

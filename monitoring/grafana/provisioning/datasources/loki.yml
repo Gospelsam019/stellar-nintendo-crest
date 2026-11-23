@@ -1,0 +1,22 @@
+# Grafana datasource provisioning — Loki (Issue #284)
+# Automatically provisions the Loki datasource so logs are queryable
+# in Grafana via LogQL without manual configuration.
+
+apiVersion: 1
+
+datasources:
+  - name: Loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    version: 1
+    editable: false
+    isDefault: false
+    jsonData:
+      maxLines: 1000
+      derivedFields:
+        # Link trace_id label to any tracing backend (e.g. Tempo / Jaeger).
+        - name: TraceID
+          matcherRegex: '"trace_id":"(\w+)"'
+          url: "$${__value.raw}"
+          datasourceUid: ""

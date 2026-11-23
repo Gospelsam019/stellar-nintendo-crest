@@ -16,6 +16,7 @@ verification commands, and the CLI scripts used to remediate.
 | `MarketStuck` | critical | [ORACLE_RUNBOOK.md](./ORACLE_RUNBOOK.md) | A market's oracle price has not updated and the market is stuck. |
 | `LeaderboardDrift` | warning | [LEADERBOARD_REBUILD_RUNBOOK.md](./LEADERBOARD_REBUILD_RUNBOOK.md) | Leaderboard totals diverge from source-of-truth aggregates. |
 | `RPCHighErrorRate` | warning | [ORACLE_ADAPTER_FRESHNESS.md](./ORACLE_ADAPTER_FRESHNESS.md) | RPC adapter error rate exceeds threshold / data is stale. |
+| `PostgresPrimaryDown` | critical | [DB_FAILOVER_RUNBOOK.md](./DB_FAILOVER_RUNBOOK.md) | PostgreSQL primary is unreachable; replica promotion required. |
 
 ## IndexerStalled → INDEXER_RUNBOOK.md
 

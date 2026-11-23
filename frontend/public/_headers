@@ -1,0 +1,33 @@
+# Cloudflare Pages / CDN cache rules — Issue #283
+#
+# These headers augment the Next.js Cache-Control headers set in next.config.mjs.
+# When deployed to Cloudflare Pages, this file configures edge caching rules at
+# the CDN level for static assets and the public market metadata API.
+#
+# Cache strategy:
+#   /_next/static/*  — public, max-age=1year, immutable (content-addressed)
+#   /images/*        — public, max-age=7days, s-maxage=7days
+#   /markets/*       — public, max-age=7days, s-maxage=7days
+#   /api/markets*    — s-maxage=10, stale-while-revalidate=30 (Cloudflare edge cache)
+#   /api/rpc         — no-store (never cache the Soroban RPC proxy)
+
+/_next/static/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/images/*
+  Cache-Control: public, max-age=604800, s-maxage=604800, stale-while-revalidate=86400
+
+/markets/*
+  Cache-Control: public, max-age=604800, s-maxage=604800, stale-while-revalidate=86400
+
+/api/markets
+  Cache-Control: public, s-maxage=10, stale-while-revalidate=30
+
+/api/markets/*
+  Cache-Control: public, s-maxage=10, stale-while-revalidate=30
+
+/api/rpc
+  Cache-Control: no-store
+
+/api/cache-purge
+  Cache-Control: no-store

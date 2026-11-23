@@ -419,4 +419,159 @@ fn test_total_supply_tracking() {
     assert_eq!(client.balance(&bob), 60_0000000_i128);
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+//  Issue #293 — Inter-contract call authorization boundaries for mint_rewards
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// 12. set_market_contract stores the market address retrievable via getter
+#[test]
+fn test_set_market_contract_stores_address() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = setup(&env);
+    let admin = init(&env, &client);
+
+    let market = Address::generate(&env);
+    client.set_market_contract(&admin, &market);
+
+    assert_eq!(client.get_market_contract(), Some(market));
+}
+
+// 13. mint_rewards succeeds when caller equals the registered market contract
+#[test]
+fn test_mint_rewards_by_market_contract_succeeds() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = setup(&env);
+    let admin = init(&env, &client);
+
+    let market = Address::generate(&env);
+    client.set_market_contract(&admin, &market);
+
+    let recipient = Address::generate(&env);
+    client.mint_rewards(&market, &recipient, &5_0000000_i128);
+
+    assert_eq!(client.balance(&recipient), 5_0000000_i128);
+    assert_eq!(client.total_supply(), 5_0000000_i128);
+}
+
+// 14. mint_rewards rejected when no market contract has been registered
+#[test]
+#[should_panic(expected = "Error(Contract, #7)")]
+fn test_mint_rewards_rejected_when_no_market_registered() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = setup(&env);
+    let _admin = init(&env, &client);
+
+    // Market contract has never been set
+    let fake_caller = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    client.mint_rewards(&fake_caller, &recipient, &1_0000000_i128);
+}
+
+// 15. mint_rewards rejected for a caller that is not the registered market contract
+#[test]
+#[should_panic(expected = "Error(Contract, #7)")]
+fn test_mint_rewards_rejected_for_unregistered_caller() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = setup(&env);
+    let admin = init(&env, &client);
+
+    let market = Address::generate(&env);
+    client.set_market_contract(&admin, &market);
+
+    // A different address tries to call mint_rewards
+    let attacker = Address::generate(&env);
+    let victim = Address::generate(&env);
+    client.mint_rewards(&attacker, &victim, &100_0000000_i128);
+}
+
+// 16. Direct external unauthorized calls to mint_rewards are rejected (issue #293 AC2)
+#[test]
+#[should_panic(expected = "Error(Contract, #7)")]
+fn test_mint_rewards_direct_external_call_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = setup(&env);
+    let admin = init(&env, &client);
+
+    let market = Address::generate(&env);
+    client.set_market_contract(&admin, &market);
+
+    // Simulate a direct external call: caller is an arbitrary end-user address,
+    // not the registered market contract.
+    let external_user = Address::generate(&env);
+    let target = Address::generate(&env);
+    client.mint_rewards(&external_user, &target, &50_0000000_i128);
+}
+
+// 17. set_market_contract is admin-only; non-admin is rejected
+#[test]
+#[should_panic(expected = "Error(Contract, #6)")]
+fn test_set_market_contract_non_admin_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = setup(&env);
+    let _admin = init(&env, &client);
+
+    let rando = Address::generate(&env);
+    let market = Address::generate(&env);
+    client.set_market_contract(&rando, &market);
+}
+
+// 18. get_market_contract returns None when not set
+#[test]
+fn test_get_market_contract_none_when_not_set() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = setup(&env);
+    let _admin = init(&env, &client);
+
+    assert_eq!(client.get_market_contract(), None);
+}
+
+// 19. mint_rewards with zero amount is rejected
+#[test]
+#[should_panic(expected = "Error(Contract, #5)")]
+fn test_mint_rewards_zero_amount_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = setup(&env);
+    let admin = init(&env, &client);
+
+    let market = Address::generate(&env);
+    client.set_market_contract(&admin, &market);
+
+    let recipient = Address::generate(&env);
+    client.mint_rewards(&market, &recipient, &0_i128);
+}
+
+// 20. set_market_contract can be updated to a new address; old address can no longer mint_rewards
+#[test]
+#[should_panic(expected = "Error(Contract, #7)")]
+fn test_mint_rewards_old_market_rejected_after_update() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = setup(&env);
+    let admin = init(&env, &client);
+
+    let old_market = Address::generate(&env);
+    let new_market = Address::generate(&env);
+
+    client.set_market_contract(&admin, &old_market);
+
+    // Verify old market can mint
+    let recipient = Address::generate(&env);
+    client.mint_rewards(&old_market, &recipient, &1_0000000_i128);
+    assert_eq!(client.balance(&recipient), 1_0000000_i128);
+
+    // Update to a new market address
+    client.set_market_contract(&admin, &new_market);
+
+    // Old market address should now be rejected
+    client.mint_rewards(&old_market, &recipient, &1_0000000_i128);
+}
+
 
