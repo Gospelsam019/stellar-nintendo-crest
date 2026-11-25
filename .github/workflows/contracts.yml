@@ -20,7 +20,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # ── Rust toolchain ──────────────────────────────────────────────────────
       # rust-toolchain.toml in contracts/ pins the exact channel and targets
@@ -106,7 +106,7 @@ jobs:
       # Artefacts are attached to the workflow run so reviewers and downstream
       # jobs can download the exact binaries that passed CI without rebuilding.
       - name: Upload WASM artefacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: soroban-wasm-${{ github.sha }}
           path: contracts/target/wasm32v1-none/release/*.wasm

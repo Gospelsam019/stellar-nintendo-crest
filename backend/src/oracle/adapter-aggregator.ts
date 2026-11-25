@@ -4,6 +4,10 @@
  * An outcome is submitted only when at least `required` of the adapters agree on it. A single
  * source cannot submit by itself. When the answers split without reaching the threshold, the
  * market is escalated to council review instead of being submitted automatically.
+ *
+ * Also hosts the multi-source price aggregator (#222): prices are collected from independent
+ * oracles (Pyth, Band, Binance), a trimmed median is computed, and sources deviating by more
+ * than the configured tolerance from the median are rejected before submission.
  */
 
 import type { Outcome } from "./auto-submitter";

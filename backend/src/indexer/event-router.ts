@@ -4,6 +4,18 @@
  * Every contract event goes through `dispatchContractEvent`, which looks up its topic and calls
  * the one handler registered for it. Live polling and the backfill runner both use this router,
  * so both run the same handler code. Topics with no handler are reported, not dropped.
+ *
+ * Idempotency (#220): each event carries a deterministic `event_hash` derived from
+ * `(ledger_sequence, tx_hash, event_index)`. The router tracks hashes it has already dispatched
+ * so a restart during a partially processed ledger does not re-run handlers for events that were
+ * already applied. Handlers persist the same hash under a UNIQUE constraint and use
+ * `ON CONFLICT DO NOTHING`, so duplicate writes are rejected at the database layer too.
+ *
+ * Multi-contract routing (#221): the router can monitor several contract deployments at once.
+ * Each monitored contract is registered with its own set of topic handlers, so events are routed
+ * to the correct domain parser based on the emitting contract ID. New contracts can be added at
+ * runtime via `addContract` without stopping existing listeners, and every log line is prefixed
+ * with the source contract ID.
  */
 
 import { Counter, Gauge, Histogram, Registry, collectDefaultMetrics } from "prom-client";

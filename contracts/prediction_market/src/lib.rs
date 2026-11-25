@@ -46,6 +46,30 @@ pub struct Market {
     pub escrowed_bonds: i128,
 }
 
+/// Immutable market metadata, written once at creation and never mutated.
+///
+/// Kept in a separate storage entry from the dynamic pool totals so that
+/// `place_bet` does not pay to read/write the static description bytes.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MarketStatic {
+    pub id: u64,
+    pub creator: Address,
+    pub token: Address,
+}
+
+/// Dynamic market pool totals, loaded and mutated on every `place_bet`.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MarketPool {
+    pub total_yes: i128,
+    pub total_no: i128,
+    pub claimed: i128,
+    pub resolved: bool,
+    pub outcome: bool,
+    pub escrowed_bonds: i128,
+}
+
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Position {

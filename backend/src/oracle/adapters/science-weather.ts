@@ -117,6 +117,11 @@ export function resolveTemperature(market: WeatherMarket, obs: TemperatureObserv
   if (!Number.isFinite(obs.celsius)) {
     return { status: "manual", reason: "observation is not a number" };
   }
+  try {
+    resolveUtcEpochSeconds(obs.observedAt);
+  } catch (err) {
+    return { status: "manual", reason: (err as Error).message };
+  }
   return {
     status: "resolved",
     outcome: obs.celsius > market.thresholdC ? "YES" : "NO",

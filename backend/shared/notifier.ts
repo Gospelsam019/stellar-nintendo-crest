@@ -1,5 +1,5 @@
 /**
- * Lightweight Discord/Slack webhook notification bot for high-severity alerts.
+ * Shared notification helpers.
  *
  * Posts rich embed messages to dedicated channels (#alerts-critical,
  * #oracle-disputes, #audit-events) with severity color bars and direct links
@@ -94,54 +94,69 @@ const SEVERITY_LABELS: Record<AlertSeverity, string> = {
   low: 'LOW',
 };
 
-interface RateBucket {
-  count: number;
-  windowStart: number;
+/**
+ * Normalize Unicode homoglyphs to their ASCII equivalents.
+ */
+export function normalizeHomoglyphs(input: string): string {
+  let result = '';
+  for (const char of input) {
+    result += HOMOGLYPH_MAP[char] ?? char;
+  }
+  return result;
 }
 
 /**
- * Webhook notifier that formats and dispatches alert embeds to Discord/Slack.
+ * Strip HTML tags and script content from a string.
  */
-export class AlertNotifier {
-  private readonly config: Required<Pick<NotifierConfig, 'webBaseUrl' | 'rateLimit' | 'rateLimitWindowMs'>> &
-    Pick<NotifierConfig, 'webhooks'>;
-  private readonly buckets = new Map<AlertChannel, RateBucket>();
+export function stripHtml(input: string): string {
+  return input
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<[^>]*>/g, '');
+}
 
-  constructor(config: NotifierConfig) {
-    this.config = {
-      webBaseUrl: config.webBaseUrl.replace(/\/$/, ''),
-      webhooks: config.webhooks,
-      rateLimit: config.rateLimit ?? 5,
-      rateLimitWindowMs: config.rateLimitWindowMs ?? 60_000,
-    };
+/**
+ * Sanitize a referral display name.
+ *
+ * Strips HTML/script tags, normalizes Unicode homoglyphs, then validates
+ * against the whitelist `^[a-zA-Z0-9_-]{3,20}$`.
+ *
+ * @returns the sanitized name, or `null` if it is invalid.
+ */
+export function sanitizeDisplayName(input: unknown): string | null {
+  if (typeof input !== 'string') {
+    return null;
   }
 
   /**
-   * Dispatch an alert to its channel. Returns true when the alert was sent,
-   * false when it was dropped by the rate limiter or no webhook is configured.
+   * Notify the operations team that the dispute bot submitted a challenge.
+   * Routes to the dedicated #oracle-disputes channel with the market, the
+   * proposed vs. canonical outcome, and the posted challenge bond.
    */
-  async notify(alert: AlertPayload): Promise<boolean> {
-    const webhookUrl = this.config.webhooks[alert.channel];
-    if (!webhookUrl) {
-      return false;
-    }
-
-    if (!this.allow(alert.channel)) {
-      return false;
-    }
-
-    const body = this.buildPayload(alert);
-
-    try {
-      const res = await fetch(webhookUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      return res.ok;
-    } catch {
-      return false;
-    }
+  async notifyChallengeSubmitted(params: {
+    marketId: string;
+    proposedOutcome: string;
+    canonicalOutcome: string;
+    discrepancyBps: number;
+    bondAmount: string;
+    txHash?: string;
+  }): Promise<boolean> {
+    return this.notify({
+      title: `Dispute challenge submitted for market ${params.marketId}`,
+      message:
+        `Automated dispute bot challenged a proposed outcome that contradicts ` +
+        `the canonical price feed (discrepancy ${params.discrepancyBps} bps).`,
+      severity: 'high',
+      channel: 'oracle-disputes',
+      link: `/markets/${params.marketId}`,
+      fields: {
+        'Market': params.marketId,
+        'Proposed outcome': params.proposedOutcome,
+        'Canonical outcome': params.canonicalOutcome,
+        'Discrepancy (bps)': params.discrepancyBps,
+        'Challenge bond': params.bondAmount,
+        ...(params.txHash ? { 'Tx hash': params.txHash } : {}),
+      },
+    });
   }
 
   /** Token-bucket style limiter: at most `rateLimit` alerts per window. */
@@ -154,46 +169,18 @@ export class AlertNotifier {
       return true;
     }
 
-    if (bucket.count >= this.config.rateLimit) {
-      return false;
-    }
-
-    bucket.count += 1;
-    return true;
+  if (!DISPLAY_NAME_PATTERN.test(normalized)) {
+    return null;
   }
 
-  /** Build a Discord-compatible webhook payload (also accepted by Slack). */
-  private buildPayload(alert: AlertPayload): Record<string, unknown> {
-    const url = alert.link ? `${this.config.webBaseUrl}${alert.link}` : this.config.webBaseUrl;
-
-    const fields = Object.entries(alert.fields ?? {}).map(([name, value]) => ({
-      name,
-      value: String(value),
-      inline: true,
-    }));
-
-    fields.push({ name: 'Channel', value: `#${alert.channel}`, inline: true });
-    fields.push({ name: 'Details', value: `[Open in dashboard](${url})`, inline: false });
-
-    return {
-      username: 'HandsOff Alerts',
-      embeds: [
-        {
-          title: `[${SEVERITY_LABELS[alert.severity]}] ${alert.title}`,
-          description: alert.message,
-          url,
-          color: SEVERITY_COLORS[alert.severity],
-          fields,
-          timestamp: alert.timestamp ?? new Date().toISOString(),
-        },
-      ],
-    };
-  }
+  return normalized;
 }
 
-/** Convenience factory for a configured notifier instance. */
-export function createAlertNotifier(config: NotifierConfig): AlertNotifier {
-  return new AlertNotifier(config);
+/**
+ * Validate a referral display name without returning the sanitized value.
+ */
+export function isValidDisplayName(input: unknown): boolean {
+  return sanitizeDisplayName(input) !== null;
 }
 
 // ---------------------------------------------------------------------------

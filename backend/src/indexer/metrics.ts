@@ -1,16 +1,25 @@
+import { Router, Request, Response } from 'express';
+import { Pool } from 'pg';
+
 /**
- * Indexer metrics in the Prometheus text format (#30).
+ * Prometheus-style metrics endpoint for the indexer.
  *
- * Exposes the gauges and counters the operations team watches. `renderMetrics()` produces the
- * body for a `/metrics` endpoint. The format is written by hand so the backend does not need
- * a metrics library yet.
+ * Exposes indexer progress plus oracle treasury / bond health gauges so that
+ * alerting rules can fire when the relayer wallet runs low on XLM or the
+ * escrowed challenge bond capacity is depleted.
  */
 
-type Labels = Record<string, string>;
-
-interface Series {
-  labels: Labels;
-  value: number;
+export interface OracleTreasurySnapshot {
+  /** Relayer wallet XLM balance (in XLM, not stroops). */
+  walletXlm: number;
+  /** Total XLM currently escrowed for challenge bonds. */
+  escrowedBondXlm: number;
+  /** Minimum XLM required to keep the relayer operational. */
+  minWalletXlm: number;
+  /** Minimum escrowed bond capacity required to accept challenges. */
+  minBondXlm: number;
+  /** Unix ms timestamp of the last successful balance check. */
+  checkedAt: number;
 }
 
 interface HistogramSeries {
@@ -39,12 +48,8 @@ interface HistogramDef {
 const registry = new Map<string, MetricDef>();
 const histogramRegistry = new Map<string, HistogramDef>();
 
-function define(name: string, help: string, type: "gauge" | "counter"): MetricDef {
-  const existing = registry.get(name);
-  if (existing) return existing;
-  const def: MetricDef = { name, help, type, series: new Map() };
-  registry.set(name, def);
-  return def;
+export function setOracleTreasurySnapshot(snapshot: OracleTreasurySnapshot): void {
+  latestTreasury = snapshot;
 }
 
 function defineHistogram(name: string, help: string, buckets: number[]): HistogramDef {
@@ -96,12 +101,15 @@ export function setGauge(def: MetricDef, value: number, labels: Labels = {}): vo
   def.series.set(labelKey(labels), { labels, value });
 }
 
-/** Adds `by` to a counter for the given labels. */
-export function incCounter(def: MetricDef, by = 1, labels: Labels = {}): void {
-  const key = labelKey(labels);
-  const current = def.series.get(key)?.value ?? 0;
-  def.series.set(key, { labels, value: current + by });
-}
+function renderTreasuryMetrics(): string {
+  const snapshot = latestTreasury;
+  if (!snapshot) {
+    return (
+      '# HELP oracle_treasury_snapshot_available Whether a treasury balance snapshot has been recorded\n' +
+      '# TYPE oracle_treasury_snapshot_available gauge\n' +
+      'oracle_treasury_snapshot_available 0\n'
+    );
+  }
 
 /** Records an observation into a histogram for the given labels. */
 export function observeHistogram(def: HistogramDef, value: number, labels: Labels = {}): void {
@@ -196,11 +204,10 @@ export function renderMetrics(): string {
   return lines.join("\n") + "\n";
 }
 
-/** Handler body for `GET /metrics`. */
-export function metricsResponse(): { status: number; headers: Record<string, string>; body: string } {
-  return {
-    status: 200,
-    headers: { "Content-Type": "text/plain; version=0.0.4; charset=utf-8" },
-    body: renderMetrics(),
-  };
+  return router;
 }
+
+export const ORACLE_TREASURY_DEFAULTS = {
+  minWalletXlm: DEFAULT_MIN_WALLET_XLM,
+  minBondXlm: DEFAULT_MIN_BOND_XLM,
+};

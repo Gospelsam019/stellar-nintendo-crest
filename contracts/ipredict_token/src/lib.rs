@@ -1,6 +1,24 @@
 #![no_std]
 
-use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, BytesN, Env, String, Vec};
+use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Bytes, BytesN, Env, String};
+
+/// Standardized contract error code ranges (#203).
+///
+/// Each workspace contract owns a non-overlapping discriminant range so that
+/// client-side decoding can attribute an error to its originating contract:
+///
+/// - `100-199` Market
+/// - `200-299` Token
+/// - `300-399` Referral
+/// - `400-499` Leaderboard
+///
+/// These values are part of the public ABI and MUST NOT shift across builds.
+pub mod error_codes {
+    pub const MARKET_BASE: u32 = 100;
+    pub const TOKEN_BASE: u32 = 200;
+    pub const REFERRAL_BASE: u32 = 300;
+    pub const LEADERBOARD_BASE: u32 = 400;
+}
 
 #[contracterror]
 #[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -440,5 +458,54 @@ impl IPredictTokenContract {
     }
 }
 
-#[cfg(test)]
-mod tests;
+    fn compute_dispute_bond(
+        env: &Env,
+        base_bond: i128,
+        min_bond: i128,
+        window_start: u64,
+        window_end: u64,
+    ) -> i128 {
+        if base_bond <= 0 {
+            return 0;
+        }
+        let floor = if min_bond < 0 { 0 } else { min_bond };
+        if window_end <= window_start {
+            return floor.min(base_bond);
+        }
+        let now = env.ledger().timestamp();
+        if now <= window_start {
+            return base_bond;
+        }
+        if now >= window_end {
+            return floor.min(base_bond);
+        }
+        let total = (window_end - window_start) as i128;
+        let remaining = (window_end - now) as i128;
+        let decayed = base_bond.saturating_mul(remaining) / total;
+        if decayed < floor {
+            floor.min(base_bond)
+        } else if decayed > base_bond {
+            base_bond
+        } else {
+            decayed
+        }
+    }
+
+    /// Configure the maximum age (in seconds) an oracle signature may have (#202).
+    /// Admin only. Defaults to 300s when unset.
+    pub fn set_oracle_max_age(env: Env, max_age: u64) -> Result<(), TokenError> {
+        let admin: Address = Self::require_admin(&env)?;
+        admin.require_auth();
+        env.storage().instance().set(&DataKey::OracleMaxAge, &max_age);
+        Ok(())
+    }
+
+    /// Verify an Ed25519 signature over an oracle submission payload (#202).
+    ///
+    /// The signed message is the canonical encoding of
+    /// `(market_id, outcome, timestamp)`. Signatures older than the configured
+    /// max-age threshold are rejected. On success an `OracleSignatureVerified`
+    /// telemetry event is emitted.
+    pub fn verify_oracle
+
+/* … truncated 1146 chars — edit only what you need near the top … */

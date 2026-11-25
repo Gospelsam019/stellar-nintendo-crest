@@ -13,6 +13,7 @@
  */
 
 export interface BetPlacedEvent {
+  ledgerSequence: number;
   txHash: string;
   eventIndex: number;
   marketId: number;
@@ -44,6 +45,8 @@ export interface TxTelemetryRow extends TxTelemetry {
 }
 
 export interface BetRow {
+  eventHash: string;
+  ledgerSequence: number;
   txHash: string;
   eventIndex: number;
   marketId: number;
@@ -175,6 +178,16 @@ export interface MarketStatsCache {
 }
 
 /**
+ * Deterministic event hash from `(ledger_sequence, tx_hash, event_index)`.
+ *
+ * The same event always yields the same hash, so a replayed event collides on the UNIQUE
+ * constraint and is skipped instead of being applied twice.
+ */
+export function computeEventHash(ledgerSequence: number, txHash: string, eventIndex: number): string {
+  return `${ledgerSequence}:${txHash.toLowerCase()}:${eventIndex}`;
+}
+
+/**
  * Applies one BetPlaced event. Returns `false` when the event was already recorded.
  *
  * Throws {@link UnknownMarketError} when the market is missing, so the caller can skip the
@@ -205,6 +218,9 @@ export async function handleBetPlaced(
       netAmount: event.netAmount,
       timestamp: event.timestamp,
     });
+    if (!betInserted) {
+      return false;
+    }
 
     const current = (await tx.getMarketTotals(event.marketId)) ?? {
       marketId: event.marketId,
